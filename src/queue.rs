@@ -31,6 +31,14 @@ impl<T: Sized + Copy> Queue<T> {
             item_type: PhantomData,
         })
     }
+    
+    
+    pub unsafe fn uninitialized() -> Self {
+        Self {
+            queue: core::ptr::null(),
+            item_type: PhantomData,
+        }
+    }
 
     /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
     pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> Result<(), FreeRtosError> {
