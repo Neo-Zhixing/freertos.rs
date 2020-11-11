@@ -12,13 +12,12 @@ pub trait ReplyableMessage {
     fn reply_to_client_id(&self) -> Option<usize>;
 }
 
-#[derive(Copy, Clone)]
-pub struct InputMessage<I> where I: Copy {
+pub struct InputMessage<I> where I: Unpin {
     val: I,
     reply_to_client_id: Option<usize>
 }
 
-impl<I> InputMessage<I> where I: Copy {
+impl<I> InputMessage<I> where I: Unpin {
     pub fn request(val: I) -> Self {
         InputMessage { val: val, reply_to_client_id: None }
     }
@@ -27,23 +26,23 @@ impl<I> InputMessage<I> where I: Copy {
         InputMessage { val: val, reply_to_client_id: Some(client_id) }
     }
 
-    pub fn get_val(&self) -> I {
-        self.val
+    pub fn get_val(&self) -> &I {
+        &self.val
     }
 }
 
-impl<I> ReplyableMessage for InputMessage<I> where I: Copy {
+impl<I> ReplyableMessage for InputMessage<I> where I: Unpin {
     fn reply_to_client_id(&self) -> Option<usize> {
         self.reply_to_client_id
     }
 }
 
-pub struct Processor<I, O> where I: ReplyableMessage + Copy, O: Copy {
+pub struct Processor<I, O> where I: ReplyableMessage + Unpin, O: Unpin {
     queue: Arc<Queue<I>>,
     inner: Arc<Mutex<ProcessorInner<O>>>,
 }
 
-impl<I, O> Processor<I, O> where I: ReplyableMessage + Copy, O: Copy {
+impl<I, O> Processor<I, O> where I: ReplyableMessage + Unpin, O: Unpin {
     pub fn new(queue_size: usize) -> Result<Self, FreeRtosError> {
         let p = ProcessorInner {
             clients: Vec::new(), 
@@ -114,18 +113,18 @@ impl<I, O> Processor<I, O> where I: ReplyableMessage + Copy, O: Copy {
     }
 }
 
-impl<I, O> Processor<InputMessage<I>, O> where I: Copy, O: Copy {
+impl<I, O> Processor<InputMessage<I>, O> where I: Unpin, O: Unpin {
     pub fn reply_val<D: DurationTicks>(&self, received_message: InputMessage<I>, reply: O, max_wait: D) -> Result<bool, FreeRtosError> {
         self.reply(received_message, reply, max_wait)
     }
 }
 
-struct ProcessorInner<O> where O: Copy {
+struct ProcessorInner<O> where O: Unpin {
     clients: Vec<(usize, Weak<ClientWithReplyQueue<O>>)>,
     next_client_id: usize
 }
 
-impl<O> ProcessorInner<O> where O: Copy {
+impl<O> ProcessorInner<O> where O: Unpin {
     fn remove_client_reply(&mut self, client: &ClientWithReplyQueue<O>) {
         self.clients.retain(|ref x| x.0 != client.id)
     }
@@ -133,12 +132,12 @@ impl<O> ProcessorInner<O> where O: Copy {
 
 
 
-pub struct ProcessorClient<I, C> where I: ReplyableMessage + Copy {    
+pub struct ProcessorClient<I, C> where I: ReplyableMessage + Unpin {
     processor_queue: Weak<Queue<I>>,
     client_reply: C
 }
 
-impl<I, O> ProcessorClient<I, O> where I: ReplyableMessage + Copy {
+impl<I, O> ProcessorClient<I, O> where I: ReplyableMessage + Unpin {
     pub fn send<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<(), FreeRtosError> {
         let processor_queue = self.processor_queue.upgrade().ok_or(FreeRtosError::ProcessorHasShutDown)?;
         processor_queue.send(message, max_wait)?;
@@ -151,7 +150,7 @@ impl<I, O> ProcessorClient<I, O> where I: ReplyableMessage + Copy {
     }
 }
 
-impl<I> ProcessorClient<InputMessage<I>, ()> where I: Copy {
+impl<I> ProcessorClient<InputMessage<I>, ()> where I: Unpin {
     pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
         self.send(InputMessage::request(val), max_wait)
     }
@@ -161,7 +160,7 @@ impl<I> ProcessorClient<InputMessage<I>, ()> where I: Copy {
     }
 }
 
-impl<I, O> ProcessorClient<I, SharedClientWithReplyQueue<O>> where I: ReplyableMessage + Copy, O: Copy {
+impl<I, O> ProcessorClient<I, SharedClientWithReplyQueue<O>> where I: ReplyableMessage + Unpin, O: Unpin {
     pub fn call<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<O, FreeRtosError> {
         self.send(message, max_wait)?;
         self.client_reply.receive_queue.receive(max_wait)
@@ -172,7 +171,7 @@ impl<I, O> ProcessorClient<I, SharedClientWithReplyQueue<O>> where I: ReplyableM
     }
 }
 
-impl<I, O> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O>> where I: Copy, O: Copy {
+impl<I, O> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O>> where I: Unpin, O: Unpin {
     pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
         self.send(InputMessage::request(val), max_wait)
     }
@@ -183,7 +182,7 @@ impl<I, O> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O>> where
     }
 }
 
-impl<I, C> Clone for ProcessorClient<I, C> where I: ReplyableMessage + Copy, C: Clone {
+impl<I, C> Clone for ProcessorClient<I, C> where I: ReplyableMessage + Unpin, C: Clone {
     fn clone(&self) -> Self {
         ProcessorClient {
             processor_queue: self.processor_queue.clone(),
@@ -194,13 +193,13 @@ impl<I, C> Clone for ProcessorClient<I, C> where I: ReplyableMessage + Copy, C: 
 
 
 
-pub struct ClientWithReplyQueue<O> where O: Copy {
+pub struct ClientWithReplyQueue<O> where O: Unpin {
     id: usize,
     processor_inner: Arc<Mutex<ProcessorInner<O>>>,
     receive_queue: Queue<O>
 }
 
-impl<O> Drop for ClientWithReplyQueue<O> where O: Copy {
+impl<O> Drop for ClientWithReplyQueue<O> where O: Unpin {
     fn drop(&mut self) {
         if let Ok(mut p) = self.processor_inner.lock(Duration::ms(1000)) {
             p.remove_client_reply(&self);

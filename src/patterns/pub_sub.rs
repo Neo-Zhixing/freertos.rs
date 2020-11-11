@@ -6,16 +6,16 @@ use crate::units::*;
 
 
 /// A pub-sub queue. An item sent to the publisher is sent to every subscriber.
-pub struct QueuePublisher<T: Sized + Copy> {
+pub struct QueuePublisher<T: Sized + Unpin + Clone> {
     inner: Arc<Mutex<PublisherInner<T>>>,
 }
 
 /// A subscribtion to the publisher.
-pub struct QueueSubscriber<T: Sized + Copy> {
+pub struct QueueSubscriber<T: Sized + Unpin + Clone> {
     inner: Arc<SubscriberInner<T>>,
 }
 
-impl<T: Sized + Copy> QueuePublisher<T> {
+impl<T: Sized + Unpin + Clone> QueuePublisher<T> {
     /// Create a new publisher
     pub fn new() -> Result<QueuePublisher<T>, FreeRtosError> {
         let inner = PublisherInner {
@@ -33,7 +33,7 @@ impl<T: Sized + Copy> QueuePublisher<T> {
 
         if let Ok(m) = self.inner.lock(max_wait) {
             for subscriber in &m.subscribers {
-                if let Ok(_) = subscriber.queue.send(item, max_wait) {
+                if let Ok(_) = subscriber.queue.send(item.clone(), max_wait) {
                     sent_to += 1;
                 }
             }
@@ -67,13 +67,13 @@ impl<T: Sized + Copy> QueuePublisher<T> {
     }
 }
 
-impl<T: Sized + Copy> Clone for QueuePublisher<T> {
+impl<T: Sized + Unpin + Clone> Clone for QueuePublisher<T> {
     fn clone(&self) -> Self {
         QueuePublisher { inner: self.inner.clone() }
     }
 }
 
-impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
+impl<T: Sized + Unpin + Clone> Drop for QueueSubscriber<T> {
     fn drop(&mut self) {
         if let Ok(mut l) = self.inner.publisher.lock(Duration::infinite()) {
             l.unsubscribe(&self.inner);
@@ -82,25 +82,25 @@ impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
 }
 
 
-impl<T: Sized + Copy> QueueSubscriber<T> {
+impl<T: Sized + Unpin + Clone> QueueSubscriber<T> {
     /// Wait for an item to be posted from the publisher.
     pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
         self.inner.queue.receive(max_wait)
     }
 }
 
-struct PublisherInner<T: Sized + Copy> {
+struct PublisherInner<T: Sized + Unpin + Clone> {
     subscribers: Vec<Arc<SubscriberInner<T>>>,
     queue_next_id: usize,
 }
 
-impl<T: Sized + Copy> PublisherInner<T> {
+impl<T: Sized + Unpin + Clone> PublisherInner<T> {
     fn unsubscribe(&mut self, subscriber: &SubscriberInner<T>) {
         self.subscribers.retain(|ref x| x.id != subscriber.id);
     }
 }
 
-struct SubscriberInner<T: Sized + Copy> {
+struct SubscriberInner<T: Sized + Unpin + Clone> {
     id: usize,
     queue: Queue<T>,
     publisher: Arc<Mutex<PublisherInner<T>>>,
