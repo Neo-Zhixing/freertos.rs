@@ -4,18 +4,18 @@ use crate::shim::*;
 use crate::units::*;
 use crate::isr::*;
 
-unsafe impl<T: Sized + Copy> Send for Queue<T> {}
-unsafe impl<T: Sized + Copy> Sync for Queue<T> {}
+unsafe impl<T: Sized + Unpin> Send for Queue<T> {}
+unsafe impl<T: Sized + Unpin> Sync for Queue<T> {}
 
 /// A queue with a finite size. The items are owned by the queue and are
 /// copied.
 #[derive(Debug)]
-pub struct Queue<T: Sized + Copy> {
+pub struct Queue<T: Sized + Unpin> {
     queue: FreeRtosQueueHandle,
     item_type: PhantomData<T>,
 }
 
-impl<T: Sized + Copy> Queue<T> {
+impl<T: Sized + Unpin> Queue<T> {
     pub fn new(max_size: usize) -> Result<Queue<T>, FreeRtosError> {
 
         let item_size = mem::size_of::<T>();
@@ -40,6 +40,7 @@ impl<T: Sized + Copy> Queue<T> {
                                       max_wait.to_ticks()) != 0 {
                 Err(FreeRtosError::QueueSendTimeout)
             } else {
+                core::mem::forget(item);
                 Ok(())
             }
         }
@@ -77,7 +78,7 @@ impl<T: Sized + Copy> Queue<T> {
     }
 }
 
-impl<T: Sized + Copy> Drop for Queue<T> {
+impl<T: Sized + Unpin> Drop for Queue<T> {
     fn drop(&mut self) {
         unsafe {
             freertos_rs_queue_delete(self.queue);
