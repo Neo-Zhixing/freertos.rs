@@ -71,7 +71,7 @@ impl Timer {
     unsafe fn spawn_inner<'a>(name: &str,
                               period_ticks: FreeRtosTickType,
                               auto_reload: bool,
-                              callback: Box<Fn(Timer) + Send + 'a>,)
+                              callback: Box<dyn Fn(Timer) + Send + 'a>,)
                               -> Result<Timer, FreeRtosError> {
         let f = Box::new(callback);
         let param_ptr = &*f as *const _ as *mut _;
@@ -105,7 +105,7 @@ impl Timer {
                         detached: true
                     };
                     if let Ok(callback_ptr) = timer.get_id() {
-                        let b = Box::from_raw(callback_ptr as *mut Box<Fn(Timer)>);
+                        let b = Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
                         b(timer);
                         Box::into_raw(b);
                     }
@@ -188,7 +188,7 @@ impl Drop for Timer {
         unsafe {
             if let Ok(callback_ptr) = self.get_id() {
                 // free the memory
-                Box::from_raw(callback_ptr as *mut Box<Fn(Timer)>);
+                Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
             }
             
             // todo: configurable timeout?
