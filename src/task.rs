@@ -256,6 +256,12 @@ impl Task {
             freertos_rs_get_stack_high_water_mark(self.task_handle) as u32
         }
     }
+
+    pub fn delete(self) {
+        unsafe {
+            freertos_rs_delete_task(self.task_handle as *const _);
+        }
+    }
 }
 
 /// Helper methods to be performed on the task that is currently executing.
